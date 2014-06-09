@@ -7,6 +7,7 @@ namespace udev
 	public class TimeUnwarp : MonoBehaviour
 	{
 		private bool unwarp = false;
+		private string buffer = "20";
 		private double lastTime = 0.0f;
 		private static double timeBuffer = 20.0f;
 
@@ -24,6 +25,7 @@ namespace udev
 			GUILayout.BeginVertical();
 			GUILayout.Space(60);
 			unwarp = GUILayout.Toggle(unwarp, "time unwarp", style);
+			buffer = GUILayout.TextField(buffer);
 			GUILayout.EndVertical();
 		}
 
@@ -40,35 +42,56 @@ namespace udev
 				lastTime = Planetarium.GetUniversalTime();
 				return;
 			}
+					
 
-			// no maneuver node
+			double ut = Planetarium.GetUniversalTime();
 			Vessel vessel = FlightGlobals.ActiveVessel;
-			if (0 == vessel.patchedConicSolver.maneuverNodes.Count) {
+
+			// soi
+			double soi = vessel.orbit.UTsoi - ut;
+			if (0 > soi) {
+				soi = 0;
+			}
+
+			// maneuver node
+			double node = 0;
+			foreach (ManeuverNode mn in vessel.patchedConicSolver.maneuverNodes) {
+				if (ut < mn.UT) {
+					node = mn.UT - ut;
+					break;
+				}
+			}
+
+			// no soi and no maneuver node
+			if (0 == soi && 0 == node) {
 				lastTime = Planetarium.GetUniversalTime();
 				return;
 			}
 
-			ManeuverNode node = vessel.patchedConicSolver.maneuverNodes[0];
-			double ut = Planetarium.GetUniversalTime();
-
-			// node already passed
-			if (ut > node.UT) {
-				lastTime = ut;
-				return;
+			int timeIndex = TimeWarp.CurrentRateIndex;
+			double timeSkipped = ut - lastTime;
+			double timeLeft = node;
+			if (0 == node || (0 < soi && soi < node)) {
+				timeLeft = soi;
 			}
 
-			double skip = ut - lastTime;
-			double deltaV = (Math.Abs(node.DeltaV.x) + Math.Abs(node.DeltaV.y) + Math.Abs(node.DeltaV.z)) / 50.0f;
+			try {
+				timeBuffer = double.Parse(buffer);
+			}
+			catch(Exception) {
+				timeBuffer = 20.0f;
+			}
 
-			if (ut + (skip * 3) + timeBuffer + deltaV >= node.UT) {
+			//Debug.Log ("TimeUnwarp: skipped: " + timeSkipped + " left: " + timeLeft + " index: " + timeIndex + " node: " + node + " soi: " + soi);
 
-				int index = TimeWarp.CurrentRateIndex;
-				if (0 < index) {
-					index--;
+			if ((timeSkipped * (timeIndex + 1)) >= (timeLeft - timeBuffer)) {
+
+				if (0 < timeIndex) {
+					timeIndex--;
 				}
 
-				Debug.Log ("TimeUnwarp: slowing down from " + TimeWarp.CurrentRate + "x (" + TimeWarp.CurrentRateIndex + ") to " + index);
-				TimeWarp.SetRate(index, true);
+				Debug.Log ("TimeUnwarp: slowing down from " + TimeWarp.CurrentRate + "x (" + TimeWarp.CurrentRateIndex + ") to " + timeIndex);
+				TimeWarp.SetRate(timeIndex, true);
 			}
 			lastTime = ut;
 		}
